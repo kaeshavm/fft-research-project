@@ -319,7 +319,7 @@ int main() {
     double avg_cycles = ((double)total_cycles) / RUNS;
     double seconds = (double)total_cycles / (CPU_FREQ_GHZ * 1e9);
     
-    double total_flops = (64.0+96.0) * (n_doubles/16) * RUNS;
+    double total_flops = (64.0+160) * (n_doubles/16) * RUNS;
     double flopspercycle = (total_flops / total_cycles);
 
     // 6. Report
