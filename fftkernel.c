@@ -2,7 +2,7 @@
 #include <stdlib.h>
 #include <immintrin.h>
 
-#define RUNS 100000000
+#define RUNS 200000000
 #define CPU_FREQ_GHZ 3.40
 
 #define SIMD_ADD(dest, s1, s2) \
@@ -104,7 +104,7 @@ __inline__ void fft4_kernel(const double *in_re, const double *in_im,
 
 int main() {
     // 1. Setup Memory
-    size_t n_doubles = 128;
+    size_t n_doubles = 256;
     size_t size = n_doubles * sizeof(double);
     
     double *in_re = (double*)_mm_malloc(size, 32);
@@ -113,7 +113,7 @@ int main() {
     double *out_im = (double*)_mm_malloc(size, 32);
 
     // 2. Initialize Data
-    for(int i=0; i<32; i++) { 
+    for(int i=0; i<64; i++) { 
         for(int j=0; j<4; j++) { 
             int idx = i*4 + j;
             in_re[idx] = i+1; in_im[idx] = 0.0;
@@ -154,9 +154,9 @@ int main() {
     printf("--------------------------\n");
 
     // 7. Verify Accuracy (Instance 0)
-    for(int k=0; k<4; k++) {
-        printf("F[%d]: %.2f + %.2fi\n", k, out_re[k*4], out_im[k*4]);
-    }
+    // for(int k=0; k<4; k++) {
+    //     printf("F[%d]: %.2f + %.2fi\n", k, out_re[k*4], out_im[k*4]);
+    // }
 
     _mm_free(in_re); _mm_free(in_im);
     _mm_free(out_re); _mm_free(out_im);

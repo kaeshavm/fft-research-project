@@ -48,14 +48,6 @@ static __inline__ unsigned long long rdtsc(void) {
     return ( (unsigned long long)lo)|( ((unsigned long long)hi)<<32 );
 }
 
-/* * 4-point FFT Kernel (Structure of Arrays)
- * Operation Count Analysis:
- * -------------------------
- * This kernel performs 16 AVX arithmetic instructions (vaddpd/vsubpd).
- * Each AVX instruction operates on 4 doubles.
- * Total FLOPs per call = 16 instrs * 4 doubles = 64 FLOPs.
- */
-
 __inline__ void fft4_kernel(const double *in_re, const double *in_im, 
                  double *out_re, double *out_im, int size) 
 {

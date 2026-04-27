@@ -3,8 +3,8 @@
 #include <immintrin.h>
 #include <math.h>
 
-#define RUNS 20000000
-#define CPU_FREQ_GHZ 3.40
+#define RUNS 200000000
+#define CPU_FREQ_GHZ 3.20
 
 #define ADD_DOUBLE_PTR(ptr, offset) \
 __asm__ __volatile__ ( \
@@ -55,25 +55,12 @@ __asm__ __volatile__(                                    \
   : [rs1] "x"(s1), [rs2] "x"(s2)                         \
 );
 
-#define PROCESS_TWIDDLES_START(stage, R1, R2, tr, ti, offset, iters) \
+#define PROCESS_TWIDDLES(stage, R1, R2, tr, ti, offset, iters) \
     if ((stage) == 0) { \
         (R1) = _mm256_load_pd(tr); \
         (tr) += (offset); \
         (R2) = _mm256_load_pd(ti); \
         (ti) += (offset); \
-    } else { \
-        (R1) = _mm256_broadcast_sd(tr); \
-        (tr) += (iters); \
-        (R2) = _mm256_broadcast_sd(ti); \
-        (ti) += (iters); \
-    } \
-
-#define PROCESS_TWIDDLES_END(stage, R1, R2, tr, ti, offset, iters) \
-    if ((stage) == 0) { \
-        (R1) = _mm256_load_pd(tr); \
-        (tr) -= (offset) * 3 - 4; \
-        (R2) = _mm256_load_pd(ti); \
-        (ti) -= (offset) * 3 - 4; \
     } else { \
         (R1) = _mm256_broadcast_sd(tr); \
         (tr) += (iters); \
@@ -88,16 +75,11 @@ static __inline__ unsigned long long rdtsc(void) {
     return ( (unsigned long long)lo)|( ((unsigned long long)hi)<<32 );
 }
 
-/* * 4-point FFT Kernel
- * This kernel performs 16 AVX arithmetic instructions (vaddpd/vsubpd).
- * Each AVX instruction operates on 4 doubles.
- * Total FLOPs per call = 16 instrs * 4 doubles = 64 FLOPs.
- */
-
 __inline__ void fft4_kernel(double *in_re, double *in_im, 
                  double *out_re, double *out_im, int n_doubles, int fft_size, 
                  int read_offset, int write_offset) 
 {   
+    //if (fft_size == 4) {fft_size = 16; read_offset = 4; write_offset = 4;}
     for (int i = 0; i < n_doubles/fft_size; i++) {
         int iters = fft_size/16;
         for (int j = 0; j < iters; j++) {
@@ -176,6 +158,8 @@ __inline__ void fft4_kernel_transpose(const double *in_re, const double *in_im,
                  const double* twiddle_r, const double* twiddle_i, 
                  int read_offset, int write_offset, int stage) 
 {
+    double* twiddle_i_reset = twiddle_i;
+    double* twiddle_r_reset = twiddle_r;
     for (int i = 0; i < n_doubles/fft_size; i++) {
         int iters = fft_size/16;
         for (int j = 0; j < iters; j++) {
@@ -227,19 +211,19 @@ __inline__ void fft4_kernel_transpose(const double *in_re, const double *in_im,
             SIMD_ADD(R7, R14, R13); // F3 im
             
             //Transpose twiddle begin
-            PROCESS_TWIDDLES_START(stage, R9, R10, twiddle_r, twiddle_i, read_offset, iters);
+            PROCESS_TWIDDLES(stage, R9, R10, twiddle_r, twiddle_i, read_offset, stage*4);
             SIMD_MUL(R8, R0, R10); //ad
             SIMD_MUL(R0, R0, R9); //ac
             SIMD_FMS(R0, R1, R10) //ac-bd F0 real
             SIMD_FMA(R8, R1, R9); //ad+bc F0 im
 
-            PROCESS_TWIDDLES_START(stage, R10, R11, twiddle_r, twiddle_i, read_offset, iters);
+            PROCESS_TWIDDLES(stage, R10, R11, twiddle_r, twiddle_i, read_offset, stage*4);
             SIMD_MUL(R9, R2, R11); //ad
             SIMD_MUL(R1, R2, R10); //ac
             SIMD_FMS(R1, R3, R11); //ac-bd F1 real
             SIMD_FMA(R9, R3, R10); //ad+bc F1 im
 
-            PROCESS_TWIDDLES_START(stage, R12, R13, twiddle_r, twiddle_i, read_offset, iters);
+            PROCESS_TWIDDLES(stage, R12, R13, twiddle_r, twiddle_i, read_offset, stage*4);
             SIMD_MUL(R10, R4, R13); //ad
             SIMD_MUL(R2, R4, R12); //ac
             SIMD_FMS(R2, R5, R13); //ac-bd F2 real
@@ -247,7 +231,7 @@ __inline__ void fft4_kernel_transpose(const double *in_re, const double *in_im,
             SIMD_FMA(R10, R5, R12); //ad+bc F2 im
             R5 = _mm256_permute2f128_pd(R0, R2, 0x31); // [A1 B1 C1 D1]
 
-            PROCESS_TWIDDLES_END(stage, R13, R14, twiddle_r, twiddle_i, read_offset, iters);
+            PROCESS_TWIDDLES(stage, R13, R14, twiddle_r, twiddle_i, -1*(read_offset*3-4), stage*4);
             SIMD_MUL(R11, R6, R14); //ad
             SIMD_MUL(R3, R6, R13); //ac
             SIMD_FMS(R3, R7, R14); //ac-bd F3 real
@@ -264,7 +248,7 @@ __inline__ void fft4_kernel_transpose(const double *in_re, const double *in_im,
             R1 = _mm256_shuffle_pd(R4, R6, 0xF); // [A1 B1 A3 B3]
             R2 = _mm256_shuffle_pd(R5, R7, 0x0); // [C0 D0 C2 D2]
             R3 = _mm256_shuffle_pd(R5, R7, 0xF); // [C1 D1 C3 D3]
-                    
+                   
             R8 = _mm256_shuffle_pd(R12, R14, 0x0); // [A0 B0 A2 B2]
             R9 = _mm256_shuffle_pd(R12, R14, 0xF); // [A1 B1 A3 B3]
             R10 = _mm256_shuffle_pd(R13, R15, 0x0); // [C0 D0 C2 D2]
@@ -290,12 +274,14 @@ __inline__ void fft4_kernel_transpose(const double *in_re, const double *in_im,
         }
         ADD_DOUBLE_PTR(in_re, 3*read_offset);
         ADD_DOUBLE_PTR(in_im, 3*read_offset);
+        twiddle_r = twiddle_r_reset;
+        twiddle_i = twiddle_i_reset;
     }
 }
 
 int main() {
     // 1. Setup Memory
-    size_t n_doubles = 64;
+    size_t n_doubles = 256;
     int fft_size = 64;
     size_t size = n_doubles * sizeof(double);
     
@@ -305,12 +291,14 @@ int main() {
     double *mid_im = (double*)_mm_malloc(size, 32);
     double *out_re = (double*)_mm_malloc(size, 32);
     double *out_im = (double*)_mm_malloc(size, 32);
-
     // 2. Initialize Data
-    for(int i=0; i<n_doubles; i++) { 
-        in_re[i] = 1.0*i; 
-        in_im[i] = 1.0*i;
+    for(int i=0; i<n_doubles/fft_size; i++) {
+        for(int j = 0; j < fft_size; j++) {
+            in_re[i*fft_size+j] = 1.0*j; 
+            in_im[i*fft_size+j] = 1.0*j;
+        }
     }
+    
     double twiddle_r[fft_size], twiddle_i[fft_size];
     double pi = 3.14159265358979323846;
     for (int i = 0; i < 4; ++i) {
@@ -321,7 +309,7 @@ int main() {
         }
     }
 
-    int iters = log2(n_doubles)/2-1;
+    int iters = log2(fft_size)/2-1;
     unsigned long long start = rdtsc();
 
     for(int i=0; i<RUNS; i++) {
@@ -353,7 +341,6 @@ int main() {
     double total_flops = (64.0 + 160.0*iters) * (fft_size/16.0) * n_doubles/fft_size * RUNS;
     double flopspercycle = total_flops / (double)total_cycles;
 
-    // 6. Report
     printf("--- Performance Report ---\n");
     printf("CPU Frequency:  %.2f GHz\n", CPU_FREQ_GHZ);
     printf("Total Runs:     %d\n", RUNS);
@@ -363,11 +350,11 @@ int main() {
     printf("Throughput:     %.2f FLOPS PER CYCLE\n", flopspercycle);
     printf("--------------------------\n");
 
-    // 7. Verify Accuracy (Instance 0)
     for (int i = 0; i < n_doubles/fft_size; ++i) {
-        for (int j = 0; j < sqrt(fft_size); ++j) {
-            for (int k = 0; k < sqrt(fft_size); ++k) {
-                printf("%.2f+%.2f\t", out_re[i*fft_size+j*4+k], out_im[i*fft_size+j*4+k]);		
+        int len = sqrt(fft_size);
+        for (int j = 0; j < len; ++j) {
+            for (int k = 0; k < len; ++k) {
+                printf("%.2f %.2f\t", out_re[i*fft_size+j*len+k], out_im[i*fft_size+j*len+k]);		
             }
             printf("\n");
         }
